@@ -313,6 +313,8 @@ body{background:#fdf8f2;font-family:'DM Sans',sans-serif;color:#2c1a0e}
 .meal-card-mini:hover{border-color:#e8a838}
 .meal-card-mini .mn{font-size:.82rem;font-weight:600;margin-bottom:3px}
 .meal-card-mini .mm{font-size:.7rem;color:#8a6a50;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.del-btn{background:none;border:none;cursor:pointer;font-size:.8rem;opacity:.35;transition:opacity .15s;padding:0;margin-left:auto;line-height:1}
+.del-btn:hover{opacity:1}
 
 .overlay{position:fixed;inset:0;background:rgba(44,26,14,.6);display:flex;align-items:center;justify-content:center;z-index:200;padding:18px}
 .modal{background:#fdf8f2;border-radius:20px;padding:26px;width:100%;max-width:460px;max-height:84vh;overflow-y:auto;box-shadow:0 20px 60px rgba(44,26,14,.3)}
@@ -440,6 +442,30 @@ export default function App() {
     setNewMeal({ name:"", type:"dinner", cost:"", baby:false, url:"" });
     setNewIngs([{ name:"", quantity:"", category:"Produce" }]);
     setSaving(false);
+  }
+
+  // ── Delete meal ───────────────────────────────────────────────────────────
+  async function deleteMeal(mealId, mealName) {
+    if (!window.confirm(`Delete "${mealName}"? This will also remove its ingredients and clear it from the weekly plan.`)) return;
+    // Optimistic local removal
+    setMeals(ms => ms.filter(m => m.id !== mealId));
+    setIngMap(im => { const n = { ...im }; delete n[mealId]; return n; });
+    // Clear from plan slots
+    setPlan(p => {
+      const next = { ...p };
+      DAYS.forEach(d => {
+        MEAL_TYPES.forEach(t => {
+          const slot = next[d]?.[t] || {};
+          const updated = { ...slot };
+          if (updated.m1 === mealId) updated.m1 = null;
+          if (updated.m2 === mealId) updated.m2 = null;
+          next[d] = { ...next[d], [t]: updated };
+        });
+      });
+      return next;
+    });
+    // Supabase: cascade handles recipe_ingredients, plan rows nulled by on delete set null
+    await supabase.from("meals").delete().eq("id", mealId);
   }
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -689,14 +715,18 @@ export default function App() {
                 </div>
                 <div className="igrid">
                   {typeMeals.map(m => (
-                    <div key={m.id} className="meal-card-mini"
-                      onClick={() => setModal({ type:"recipe", mealId:m.id })}>
-                      <div className="mn">{m.name}</div>
+                    <div key={m.id} className="meal-card-mini">
+                      <div className="mn" onClick={() => setModal({ type:"recipe", mealId:m.id })}>{m.name}</div>
                       <div className="mm">
                         <span style={{fontWeight:700,color:"#e8a838"}}>£{m.cost.toFixed(2)}pp</span>
                         {m.baby && <span style={{color:"#6ed87a",fontWeight:600}}>✅ baby</span>}
                         {m.url && <span style={{color:"#e8a838"}}>🔗</span>}
-                        <span style={{textDecoration:"underline"}}>{(ingMap[m.id]||[]).length} ingredients</span>
+                        <span style={{textDecoration:"underline",cursor:"pointer"}}
+                          onClick={() => setModal({ type:"recipe", mealId:m.id })}>
+                          {(ingMap[m.id]||[]).length} ingredients
+                        </span>
+                        <button className="del-btn" onClick={() => deleteMeal(m.id, m.name)}
+                          title="Delete meal">🗑</button>
                       </div>
                     </div>
                   ))}
